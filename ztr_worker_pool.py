@@ -73,10 +73,10 @@ class RCWorkers:
         target_host: str,
         port: int,
         config_file: str,
+        worker_prefix: str,
         n: int = 2,
         timing_defense: bool = False,
         secure_transport: bool = False,
-        worker_prefix: str = "",
         target_port: int = None,
     ):
         self.lock = threading.Lock()
@@ -106,10 +106,13 @@ class RCWorkers:
             # one cached session instead of each getting its own. Set once;
             # it's stored on the instance and stays put across the
             # re-authorization attempts _heal_broken_workers() makes later.
-            # A string id (optionally prefixed) is just as unique as an int
-            # here — create_tunnel_id() stringifies it either way — but
-            # reads a lot better in logs across multiple pools than a bare
-            # "0", "1", "2" that could be any pool's worker #0.
+            # worker_prefix is required, not just optional decoration — a
+            # bare "0", "1", "2"... is only unique *within* this pool; two
+            # separate RCWorkers pools against the same target/route/ttl
+            # with no prefix would compute identical tunnel_ids for their
+            # same-numbered workers and could end up sharing each other's
+            # cached sessions. The prefix is what actually keeps pools
+            # distinct from one another, not just workers within one pool.
             w.with_worker_id(f"{worker_prefix}{i}")
             # Pool-wide toggles applied uniformly — every worker here
             # shares the same target/route, so there's no reason one
