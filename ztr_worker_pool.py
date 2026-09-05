@@ -77,11 +77,21 @@ class RCWorkers:
         timing_defense: bool = False,
         secure_transport: bool = False,
         worker_prefix: str = "",
+        requested_port: int = None,
     ):
         self.lock = threading.Lock()
         self.condition = threading.Condition(self.lock)
         self.target_host = target_host
         self.port = port
+        # RelayClient defaults REQUESTED_PORT to `port`, but the two aren't
+        # the same thing — REQUESTED_PORT is what the exit hop actually
+        # dials at TARGET_HOST, baked into the tunnel id and the hop
+        # authorization request itself (see request_hop_authorization() in
+        # ztrClient.py), while `port` also does separate duty as this
+        # tunnel's listening_port. Pass this when the pool needs to reach a
+        # destination port that isn't `port`; leave it None to keep
+        # RelayClient's own default.
+        self.requested_port = requested_port
         self.config_file = config_file
 
         # Workers that fail to authorize here are kept in the pool (state
@@ -106,6 +116,12 @@ class RCWorkers:
             # worker's tunnel would want these on while another's didn't.
             w.with_timing_defense(timing_defense)
             w.with_encryption(secure_transport)
+            # Must happen before _authorize() — REQUESTED_PORT is read at
+            # authorization time (create_tunnel_id()/request_hop_authorization()
+            # in ztrClient.py), not per-request, so setting it after the
+            # tunnel's already authorized would silently have no effect.
+            if requested_port is not None:
+                w.set_requested_port(requested_port)
             self._authorize(w)
         ready = sum(1 for w in self.workers if w.state == "free")
         print(f"{ready}/{n} worker(s) ready")
