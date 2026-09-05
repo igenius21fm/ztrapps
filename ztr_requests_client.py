@@ -110,7 +110,7 @@ class ZtrRequestsClient:
         if not result or not result.get("status"):
             raise ConnectionError(f"failed to establish tunnel: {result}")
         self._sock = socket.create_connection(
-            (self._client.entry_hop, self._client.ra_port), timeout=self._timeout
+            (self._client.entry_hop, self._client.PORT), timeout=self._timeout
         )
         return self
 

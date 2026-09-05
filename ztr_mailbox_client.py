@@ -46,7 +46,7 @@ class _MailboxConnection:
         result = self._client.set_tunnel()
         if not result or not result.get("status"):
             raise ConnectionError(f"failed to establish tunnel: {result}")
-        self._sock = socket.create_connection((self._client.entry_hop, self._client.ra_port))
+        self._sock = socket.create_connection((self._client.entry_hop, self._client.PORT))
         return self
 
     def close(self) -> None:
