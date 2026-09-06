@@ -72,8 +72,10 @@ class ZtrRequestsClient:
     def __init__(
         self,
         config_file: str,
-        relay_name: str,
-        relay_port: int = 9999,
+        target_host: str,
+        worker_prefix: str,
+        port: int = 9999,
+        target_port: int = None,
         own_private_key: str = None,
         own_public_key: str = None,
         target_public_key: str = None,
@@ -81,17 +83,23 @@ class ZtrRequestsClient:
         timing_defense: bool = False,
         secure_transport: bool = False,
         worker_id: str = None,
-        worker_prefix: str = "",
     ):
         self._timeout = timeout
-        self._client = RelayClient(target_host=relay_name, port=relay_port, config_file=config_file)
+        self._client = RelayClient(target_host=target_host, port=port, config_file=config_file)
+        # port and target_port are not the same thing — port is this
+        # tunnel's own listening_port; target_port (only set if given —
+        # RelayClient otherwise defaults it to `port`) is where the exit
+        # hop actually connects at target_host. See ztrClient.py.
+        if target_port is not None:
+            self._client.set_target_port(target_port)
         # create_tunnel_id() hashes worker_id in — without setting a distinct
         # one per instance, pooling several ZtrRequestsClients against the
         # same route/target would all compute the same tunnel_id and end up
         # sharing one cached session instead of each getting its own.
         # worker_prefix just saves the caller writing f"{prefix}{i}"
         # themselves, and keeps two separate pools from colliding with each
-        # other too — same idea as RCWorkers' worker_prefix.
+        # other too — same idea as (and required for the same reason as)
+        # RCWorkers' worker_prefix, even when worker_id itself is unused.
         if worker_id is not None:
             self._client.with_worker_id(f"{worker_prefix}{worker_id}")
         self._client.with_timing_defense(timing_defense)
@@ -215,8 +223,9 @@ def _cli() -> None:
     parser.add_argument("method", help="HTTP method (GET, POST, ...)")
     parser.add_argument("url", help="URL for the target service to request on your behalf")
     parser.add_argument("--config-file", required=True, help="your downloaded .ztr route config")
-    parser.add_argument("--relay-name", required=True, help="the ._ztr alias (or address) of the target running ztr_requests.py")
-    parser.add_argument("--relay-port", type=int, default=9999)
+    parser.add_argument("--target-host", required=True, help="the ._ztr alias (or address) of the target running ztr_requests.py")
+    parser.add_argument("--port", type=int, default=9999, help="this tunnel's own listening_port (see ztrClient.py)")
+    parser.add_argument("--target-port", type=int, default=None, help="exit hop's real destination port, if different from --port")
     parser.add_argument("-H", "--header", action="append", default=[], metavar="Name:Value")
     parser.add_argument("-d", "--data", help="request body")
     parser.add_argument(
@@ -239,8 +248,10 @@ def _cli() -> None:
 
     with ZtrRequestsClient(
         args.config_file,
-        args.relay_name,
-        args.relay_port,
+        args.target_host,
+        worker_prefix="",  # single one-shot CLI client, never pooled
+        port=args.port,
+        target_port=args.target_port,
         timing_defense=args.timing_correlation_defense,
         secure_transport=args.secure_transport,
     ) as client:

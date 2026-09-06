@@ -30,15 +30,25 @@ class ZtrStreamClient:
     def __init__(
         self,
         config_file: str,
-        relay_name: str,
-        relay_port: int = 9998,
+        target_host: str,
+        worker_prefix: str,
+        port: int = 9998,
+        target_port: int = None,
         own_private_key: str = None,
         own_public_key: str = None,
         target_public_key: str = None,
         worker_id: str = None,
-        worker_prefix: str = "",
     ):
-        self._client = RelayClient(target_host=relay_name, port=relay_port, config_file=config_file)
+        self._client = RelayClient(target_host=target_host, port=port, config_file=config_file)
+        # port and target_port are not the same thing — port is this
+        # tunnel's own listening_port; target_port (only set if given —
+        # RelayClient otherwise defaults it to `port`) is where the exit
+        # hop actually connects at target_host. See ztrClient.py.
+        if target_port is not None:
+            self._client.set_target_port(target_port)
+        # worker_prefix is required even when worker_id is unused (single
+        # client, no pooling) — same reasoning as RCWorkers' worker_prefix:
+        # a bare worker_id is only unique within one pool of these.
         if worker_id is not None:
             self._client.with_worker_id(f"{worker_prefix}{worker_id}")
         self._sock = None
@@ -125,8 +135,9 @@ def _cli() -> None:
         description="List or stream a video from a ztr_stream.py target, over an authorized ZTRelay tunnel."
     )
     parser.add_argument("--config-file", required=True, help="your downloaded .ztr route config")
-    parser.add_argument("--relay-name", required=True, help="the ._ztr alias (or address) of the target running ztr_stream.py")
-    parser.add_argument("--relay-port", type=int, default=9998)
+    parser.add_argument("--target-host", required=True, help="the ._ztr alias (or address) of the target running ztr_stream.py")
+    parser.add_argument("--port", type=int, default=9998, help="this tunnel's own listening_port (see ztrClient.py)")
+    parser.add_argument("--target-port", type=int, default=None, help="exit hop's real destination port, if different from --port")
 
     sub = parser.add_subparsers(dest="cmd", required=True)
     sub.add_parser("list", help="list videos available on the target")
@@ -136,7 +147,13 @@ def _cli() -> None:
 
     args = parser.parse_args()
 
-    with ZtrStreamClient(args.config_file, args.relay_name, args.relay_port) as client:
+    with ZtrStreamClient(
+        args.config_file,
+        args.target_host,
+        worker_prefix="",  # single one-shot CLI client, never pooled
+        port=args.port,
+        target_port=args.target_port,
+    ) as client:
         if args.cmd == "list":
             for name in client.list_videos():
                 print(name)

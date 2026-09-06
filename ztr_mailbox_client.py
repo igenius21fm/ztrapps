@@ -38,8 +38,14 @@ class _MailboxConnection:
     over the tunnel (send_HTH/recv_HTH), no extra encryption layer at
     this level; see ztr_mailbox.py's module docstring for why."""
 
-    def __init__(self, config_file: str, relay_name: str, relay_port: int = 9997):
-        self._client = RelayClient(target_host=relay_name, port=relay_port, config_file=config_file)
+    def __init__(self, config_file: str, target_host: str, port: int = 9997, target_port: int = None):
+        self._client = RelayClient(target_host=target_host, port=port, config_file=config_file)
+        # port and target_port are not the same thing — port is this
+        # tunnel's own listening_port; target_port (only set if given —
+        # RelayClient otherwise defaults it to `port`) is where the exit
+        # hop actually connects at target_host. See ztrClient.py.
+        if target_port is not None:
+            self._client.set_target_port(target_port)
         self._sock = None
 
     def connect(self) -> "_MailboxConnection":
@@ -89,10 +95,11 @@ class BobClient:
     tool, or `python3 access.py get_domain_data <alias>` directly.
     """
 
-    def __init__(self, config_file: str, relay_name: str, relay_port: int = 9997):
+    def __init__(self, config_file: str, target_host: str, port: int = 9997, target_port: int = None):
         self._config_file = config_file
-        self._relay_name = relay_name
-        self._relay_port = relay_port
+        self._target_host = target_host
+        self._port = port
+        self._target_port = target_port
 
     def submit(self, message: str, alice_pubkey: "RSA.RsaKey") -> tuple:
         ephemeral = RSA.generate(2048)
@@ -102,7 +109,7 @@ class BobClient:
         payload = json.dumps({"message": message, "reply_pubkey": ephemeral_pub_pem}).encode("utf-8")
         blob = _encode_blob(payload, alice_pubkey)
 
-        with _MailboxConnection(self._config_file, self._relay_name, self._relay_port) as conn:
+        with _MailboxConnection(self._config_file, self._target_host, self._port, self._target_port) as conn:
             resp = conn.call("submit", blob=blob)
         if resp.get("error"):
             raise RuntimeError(resp["error"])
@@ -110,7 +117,7 @@ class BobClient:
         return resp["token"], ephemeral_priv_pem
 
     def check_reply(self, token: str, ephemeral_private_key_pem: str):
-        with _MailboxConnection(self._config_file, self._relay_name, self._relay_port) as conn:
+        with _MailboxConnection(self._config_file, self._target_host, self._port, self._target_port) as conn:
             resp = conn.call("check", token=token)
         if not resp.get("reply"):
             return None
@@ -127,15 +134,16 @@ class AliceClient:
     the mailbox process itself never sees plaintext.
     """
 
-    def __init__(self, config_file: str, relay_name: str, private_key_pem_path: str, relay_port: int = 9997):
+    def __init__(self, config_file: str, target_host: str, private_key_pem_path: str, port: int = 9997, target_port: int = None):
         self._config_file = config_file
-        self._relay_name = relay_name
-        self._relay_port = relay_port
+        self._target_host = target_host
+        self._port = port
+        self._target_port = target_port
         with open(private_key_pem_path) as f:
             self._privkey = RSA.import_key(f.read())
 
     def list_new(self) -> list:
-        with _MailboxConnection(self._config_file, self._relay_name, self._relay_port) as conn:
+        with _MailboxConnection(self._config_file, self._target_host, self._port, self._target_port) as conn:
             resp = conn.call("list_new")
 
         out = []
@@ -153,7 +161,7 @@ class AliceClient:
         reply_pubkey = RSA.import_key(reply_pubkey_pem)
         blob = _encode_blob(message.encode("utf-8"), reply_pubkey)
 
-        with _MailboxConnection(self._config_file, self._relay_name, self._relay_port) as conn:
+        with _MailboxConnection(self._config_file, self._target_host, self._port, self._target_port) as conn:
             resp = conn.call("reply", id=submission_id, blob=blob)
         if resp.get("error"):
             raise RuntimeError(resp["error"])
@@ -164,8 +172,9 @@ def _cli() -> None:
         description="Bob-to-Alice async mailbox client, over an authorized ZTRelay tunnel."
     )
     parser.add_argument("--config-file", default=None, help="your downloaded .ztr route config (not needed for genkey)")
-    parser.add_argument("--relay-name", default=None, help="the ._ztr alias (or address) of the target running ztr_mailbox.py (not needed for genkey)")
-    parser.add_argument("--relay-port", type=int, default=9997)
+    parser.add_argument("--target-host", default=None, help="the ._ztr alias (or address) of the target running ztr_mailbox.py (not needed for genkey)")
+    parser.add_argument("--port", type=int, default=9997, help="this tunnel's own listening_port (see ztrClient.py)")
+    parser.add_argument("--target-port", type=int, default=None, help="exit hop's real destination port, if different from --port")
 
     sub = parser.add_subparsers(dest="cmd", required=True)
 
@@ -202,11 +211,11 @@ def _cli() -> None:
         print(f"Paste {pub_path}'s contents into the mailbox alias's services metadata (dashboard DNS panel) as encryptions.pubkey — Bob looks it up from there, this target never serves it.")
         return
 
-    if not args.config_file or not args.relay_name:
-        parser.error("--config-file and --relay-name are required for this command")
+    if not args.config_file or not args.target_host:
+        parser.error("--config-file and --target-host are required for this command")
 
     if args.cmd == "submit":
-        client = BobClient(args.config_file, args.relay_name, args.relay_port)
+        client = BobClient(args.config_file, args.target_host, args.port, args.target_port)
         pubkey = RSA.import_key(open(args.alice_pubkey).read())
         token, ephemeral_priv_pem = client.submit(args.message, pubkey)
         key_path = f"mailbox_{token[:12]}.pem"
@@ -217,12 +226,12 @@ def _cli() -> None:
         print(f"  reply key:   {key_path}")
 
     elif args.cmd == "check":
-        client = BobClient(args.config_file, args.relay_name, args.relay_port)
+        client = BobClient(args.config_file, args.target_host, args.port, args.target_port)
         reply = client.check_reply(args.token, open(args.key_file).read())
         print(reply if reply else "(no reply yet)")
 
     elif args.cmd == "list":
-        client = AliceClient(args.config_file, args.relay_name, args.key_file, args.relay_port)
+        client = AliceClient(args.config_file, args.target_host, args.key_file, args.port, args.target_port)
         submissions = client.list_new()
         if not submissions:
             print("(nothing new)")
@@ -235,7 +244,7 @@ def _cli() -> None:
             print(f"  (reply pubkey saved to {reply_key_path} — pass it to `reply`)")
 
     elif args.cmd == "reply":
-        client = AliceClient(args.config_file, args.relay_name, args.key_file, args.relay_port)
+        client = AliceClient(args.config_file, args.target_host, args.key_file, args.port, args.target_port)
         client.reply(args.submission_id, args.message, open(args.reply_pubkey_file).read())
         print("Reply sent.")
 
