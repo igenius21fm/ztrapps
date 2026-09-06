@@ -199,7 +199,7 @@ class RCWorkers:
                 print(f"[WORKER HEAL] Worker #{i} successfully restored!")
 
 
-def task(rcw: RCWorkers, _start, on_failure=None, on_success=None, *args, **kwargs):
+def rc_task(rcw: RCWorkers, _start, on_failure=None, on_success=None, *args, **kwargs):
     worker = rcw.acquire_worker()
     try:
         r = _start(worker, *args, **kwargs)
