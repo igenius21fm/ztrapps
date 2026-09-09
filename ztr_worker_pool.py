@@ -118,7 +118,12 @@ class RCWorkers:
             # shares the same target/route, so there's no reason one
             # worker's tunnel would want these on while another's didn't.
             w.with_timing_defense(timing_defense)
-            w.with_encryption(secure_transport)
+            # Keyword, not positional — with_encryption()'s first positional
+            # arg is now recipient_pubkey_path (opt-in end-to-end encryption
+            # on RelayClient itself). This pool doesn't use that; it only
+            # sets the unrelated secure_transport flag (hop chain's own
+            # final-leg encryption) — see ztrClient.py's with_encryption().
+            w.with_encryption(enabled=secure_transport)
             # Must happen before _authorize() — TARGET_PORT is read at
             # authorization time (create_tunnel_id()/request_hop_authorization()
             # in ztrClient.py), not per-request, so setting it after the

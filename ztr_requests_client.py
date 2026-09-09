@@ -103,7 +103,13 @@ class ZtrRequestsClient:
         if worker_id is not None:
             self._client.with_worker_id(f"{worker_prefix}{worker_id}")
         self._client.with_timing_defense(timing_defense)
-        self._client.with_encryption(secure_transport)
+        # Keyword, not positional — with_encryption()'s first positional
+        # arg is now recipient_pubkey_path (opt-in end-to-end encryption on
+        # RelayClient itself), which this class doesn't use: it already
+        # runs its own separate crypto layer below (self._crypt) for the
+        # actual target-facing encryption. This just sets the unrelated
+        # secure_transport flag — the hop chain's own final-leg encryption.
+        self._client.with_encryption(enabled=secure_transport)
         self._sock = None
 
         self._crypt = AR.CryptBot(
