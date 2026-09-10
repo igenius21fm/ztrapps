@@ -32,8 +32,8 @@ class ZtrStreamClient:
         config_file: str,
         target_host: str,
         worker_prefix: str,
-        port: int = 9998,
-        target_port: int = None,
+        port: int = None,
+        target_port: int = 9998,
         own_private_key: str = None,
         own_public_key: str = None,
         target_public_key: str = None,
@@ -41,9 +41,12 @@ class ZtrStreamClient:
     ):
         self._client = RelayClient(target_host=target_host, port=port, config_file=config_file)
         # port and target_port are not the same thing — port is this
-        # tunnel's own listening_port; target_port (only set if given —
-        # RelayClient otherwise defaults it to `port`) is where the exit
-        # hop actually connects at target_host. See ztrClient.py.
+        # tunnel's own listening_port (left None, it auto-selects from
+        # hop_settings.services_ports — see RelayClient); target_port is
+        # where the exit hop actually connects at target_host, and
+        # defaults to 9998 here specifically because that's ztr_stream.py's
+        # own listening default — NOT because RelayClient falls back to
+        # `port`, which would now be the wrong value most of the time.
         if target_port is not None:
             self._client.set_target_port(target_port)
         # worker_prefix is required even when worker_id is unused (single
@@ -136,8 +139,8 @@ def _cli() -> None:
     )
     parser.add_argument("--config-file", required=True, help="your downloaded .ztr route config")
     parser.add_argument("--target-host", required=True, help="the ._ztr alias (or address) of the target running ztr_stream.py")
-    parser.add_argument("--port", type=int, default=9998, help="this tunnel's own listening_port (see ztrClient.py)")
-    parser.add_argument("--target-port", type=int, default=None, help="exit hop's real destination port, if different from --port")
+    parser.add_argument("--port", type=int, default=None, help="this tunnel's own listening_port (see ztrClient.py) — omit to auto-select from hop_settings.services_ports")
+    parser.add_argument("--target-port", type=int, default=9998, help="where ztr_stream.py is actually listening at --target-host (its own default is 9998)")
 
     sub = parser.add_subparsers(dest="cmd", required=True)
     sub.add_parser("list", help="list videos available on the target")

@@ -74,8 +74,8 @@ class ZtrRequestsClient:
         config_file: str,
         target_host: str,
         worker_prefix: str,
-        port: int = 9999,
-        target_port: int = None,
+        port: int = None,
+        target_port: int = 9999,
         own_private_key: str = None,
         own_public_key: str = None,
         target_public_key: str = None,
@@ -87,9 +87,12 @@ class ZtrRequestsClient:
         self._timeout = timeout
         self._client = RelayClient(target_host=target_host, port=port, config_file=config_file)
         # port and target_port are not the same thing — port is this
-        # tunnel's own listening_port; target_port (only set if given —
-        # RelayClient otherwise defaults it to `port`) is where the exit
-        # hop actually connects at target_host. See ztrClient.py.
+        # tunnel's own listening_port (left None, it auto-selects from
+        # hop_settings.services_ports — see RelayClient); target_port is
+        # where the exit hop actually connects at target_host, and
+        # defaults to 9999 here specifically because that's ztr_requests.py's
+        # own listening default — NOT because RelayClient falls back to
+        # `port`, which would now be the wrong value most of the time.
         if target_port is not None:
             self._client.set_target_port(target_port)
         # create_tunnel_id() hashes worker_id in — without setting a distinct
@@ -230,8 +233,8 @@ def _cli() -> None:
     parser.add_argument("url", help="URL for the target service to request on your behalf")
     parser.add_argument("--config-file", required=True, help="your downloaded .ztr route config")
     parser.add_argument("--target-host", required=True, help="the ._ztr alias (or address) of the target running ztr_requests.py")
-    parser.add_argument("--port", type=int, default=9999, help="this tunnel's own listening_port (see ztrClient.py)")
-    parser.add_argument("--target-port", type=int, default=None, help="exit hop's real destination port, if different from --port")
+    parser.add_argument("--port", type=int, default=None, help="this tunnel's own listening_port (see ztrClient.py) — omit to auto-select from hop_settings.services_ports")
+    parser.add_argument("--target-port", type=int, default=9999, help="where ztr_requests.py is actually listening at --target-host (its own default is 9999)")
     parser.add_argument("-H", "--header", action="append", default=[], metavar="Name:Value")
     parser.add_argument("-d", "--data", help="request body")
     parser.add_argument(

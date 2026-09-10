@@ -38,12 +38,15 @@ class _MailboxConnection:
     over the tunnel (send_HTH/recv_HTH), no extra encryption layer at
     this level; see ztr_mailbox.py's module docstring for why."""
 
-    def __init__(self, config_file: str, target_host: str, port: int = 9997, target_port: int = None):
+    def __init__(self, config_file: str, target_host: str, port: int = None, target_port: int = 9997):
         self._client = RelayClient(target_host=target_host, port=port, config_file=config_file)
         # port and target_port are not the same thing — port is this
-        # tunnel's own listening_port; target_port (only set if given —
-        # RelayClient otherwise defaults it to `port`) is where the exit
-        # hop actually connects at target_host. See ztrClient.py.
+        # tunnel's own listening_port (left None, it auto-selects from
+        # hop_settings.services_ports — see RelayClient); target_port is
+        # where the exit hop actually connects at target_host, and
+        # defaults to 9997 here specifically because that's ztr_mailbox.py's
+        # own listening default — NOT because RelayClient falls back to
+        # `port`, which would now be the wrong value most of the time.
         if target_port is not None:
             self._client.set_target_port(target_port)
         self._sock = None
@@ -95,7 +98,7 @@ class BobClient:
     tool, or `python3 access.py get_domain_data <alias>` directly.
     """
 
-    def __init__(self, config_file: str, target_host: str, port: int = 9997, target_port: int = None):
+    def __init__(self, config_file: str, target_host: str, port: int = None, target_port: int = 9997):
         self._config_file = config_file
         self._target_host = target_host
         self._port = port
@@ -134,7 +137,7 @@ class AliceClient:
     the mailbox process itself never sees plaintext.
     """
 
-    def __init__(self, config_file: str, target_host: str, private_key_pem_path: str, port: int = 9997, target_port: int = None):
+    def __init__(self, config_file: str, target_host: str, private_key_pem_path: str, port: int = None, target_port: int = 9997):
         self._config_file = config_file
         self._target_host = target_host
         self._port = port
@@ -173,8 +176,8 @@ def _cli() -> None:
     )
     parser.add_argument("--config-file", default=None, help="your downloaded .ztr route config (not needed for genkey)")
     parser.add_argument("--target-host", default=None, help="the ._ztr alias (or address) of the target running ztr_mailbox.py (not needed for genkey)")
-    parser.add_argument("--port", type=int, default=9997, help="this tunnel's own listening_port (see ztrClient.py)")
-    parser.add_argument("--target-port", type=int, default=None, help="exit hop's real destination port, if different from --port")
+    parser.add_argument("--port", type=int, default=None, help="this tunnel's own listening_port (see ztrClient.py) — omit to auto-select from hop_settings.services_ports")
+    parser.add_argument("--target-port", type=int, default=9997, help="where ztr_mailbox.py is actually listening at --target-host (its own default is 9997)")
 
     sub = parser.add_subparsers(dest="cmd", required=True)
 

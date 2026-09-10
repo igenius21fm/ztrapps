@@ -22,7 +22,7 @@ class RCTimer(RelayClient):
     of its last state change, so a pool can pick the least-recently-used
     free worker and detect/heal broken ones."""
 
-    def __init__(self, target_host: str, port: int, config_file: str):
+    def __init__(self, target_host: str, port: int = None, config_file: str = None):
         super().__init__(target_host, port, config_file=config_file)
         self.clock = 0.0
         self.state = "free"
@@ -71,9 +71,9 @@ class RCWorkers:
     def __init__(
         self,
         target_host: str,
-        port: int,
         config_file: str,
         worker_prefix: str,
+        port: int = None,
         n: int = 2,
         timing_defense: bool = False,
         secure_transport: bool = False,
