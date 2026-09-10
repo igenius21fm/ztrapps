@@ -40,18 +40,10 @@ class ZtrStreamClient:
         worker_id: str = None,
     ):
         self._client = RelayClient(target_host=target_host, port=port, config_file=config_file)
-        # port and target_port are not the same thing — port is this
-        # tunnel's own listening_port (left None, it auto-selects from
-        # hop_settings.services_ports — see RelayClient); target_port is
-        # where the exit hop actually connects at target_host, and
-        # defaults to 9998 here specifically because that's ztr_stream.py's
-        # own listening default — NOT because RelayClient falls back to
-        # `port`, which would now be the wrong value most of the time.
+        # target_port defaults to 9998 (ztr_stream.py's own listening
+        # default), independent of port — see RelayClient.
         if target_port is not None:
             self._client.set_target_port(target_port)
-        # worker_prefix is required even when worker_id is unused (single
-        # client, no pooling) — same reasoning as RCWorkers' worker_prefix:
-        # a bare worker_id is only unique within one pool of these.
         if worker_id is not None:
             self._client.with_worker_id(f"{worker_prefix}{worker_id}")
         self._sock = None
@@ -109,11 +101,9 @@ class ZtrStreamClient:
         return received
 
     # ------------------------------------------------------------------
-    # Same length(4) + encrypted-payload framing as ztr_stream.py's
-    # _send_frame/_recv_frame — this is the inner, end-to-end encrypted
-    # layer. send_HTH/recv_HTH is the separate outer layer that actually
-    # moves bytes through the authorized tunnel; that layer is already
-    # gone by the time a message reaches ztr_stream.py's raw socket.
+    # Same length(4) + payload framing as ztr_stream.py's _send_frame/
+    # _recv_frame — the inner, end-to-end encrypted layer, distinct from
+    # send_HTH/recv_HTH's outer tunnel framing below.
 
     def _send(self, payload: bytes) -> None:
         encrypted = self._crypt.encrypt_sign_BytesPayload(payload)

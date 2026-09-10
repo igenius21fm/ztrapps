@@ -86,32 +86,16 @@ class ZtrRequestsClient:
     ):
         self._timeout = timeout
         self._client = RelayClient(target_host=target_host, port=port, config_file=config_file)
-        # port and target_port are not the same thing — port is this
-        # tunnel's own listening_port (left None, it auto-selects from
-        # hop_settings.services_ports — see RelayClient); target_port is
-        # where the exit hop actually connects at target_host, and
-        # defaults to 9999 here specifically because that's ztr_requests.py's
-        # own listening default — NOT because RelayClient falls back to
-        # `port`, which would now be the wrong value most of the time.
+        # target_port defaults to 9999 (ztr_requests.py's own listening
+        # default), independent of port — see RelayClient.
         if target_port is not None:
             self._client.set_target_port(target_port)
-        # create_tunnel_id() hashes worker_id in — without setting a distinct
-        # one per instance, pooling several ZtrRequestsClients against the
-        # same route/target would all compute the same tunnel_id and end up
-        # sharing one cached session instead of each getting its own.
-        # worker_prefix just saves the caller writing f"{prefix}{i}"
-        # themselves, and keeps two separate pools from colliding with each
-        # other too — same idea as (and required for the same reason as)
-        # RCWorkers' worker_prefix, even when worker_id itself is unused.
+        # worker_prefix keeps pooled instances from colliding on tunnel_id.
         if worker_id is not None:
             self._client.with_worker_id(f"{worker_prefix}{worker_id}")
         self._client.with_timing_defense(timing_defense)
-        # Keyword, not positional — with_encryption()'s first positional
-        # arg is now recipient_pubkey_path (opt-in end-to-end encryption on
-        # RelayClient itself), which this class doesn't use: it already
-        # runs its own separate crypto layer below (self._crypt) for the
-        # actual target-facing encryption. This just sets the unrelated
-        # secure_transport flag — the hop chain's own final-leg encryption.
+        # secure_transport (hop chain's own final-leg encryption) — this
+        # class's target-facing encryption is the separate self._crypt below.
         self._client.with_encryption(enabled=secure_transport)
         self._sock = None
 
@@ -191,12 +175,9 @@ class ZtrRequestsClient:
         return self.request("PATCH", url, **kwargs)
 
     # ------------------------------------------------------------------
-    # Same flag(1) + length(4) + encrypted-payload framing as
-    # ztr_requests.py's _send_framed/_recv_framed — this is the inner,
-    # end-to-end encrypted layer. send_HTH/recv_HTH below is the separate
-    # outer layer that actually moves bytes through the authorized tunnel;
-    # by the time a message reaches ztr_requests.py's raw socket, that
-    # outer layer is already gone and this inner frame is all that's left.
+    # Same flag(1) + length(4) + payload framing as ztr_requests.py's
+    # _send_framed/_recv_framed — the inner, end-to-end encrypted layer,
+    # distinct from send_HTH/recv_HTH's outer tunnel framing below.
 
     def _send(self, data_str: str, size_threshold: int = 200) -> None:
         data = data_str.encode("utf-8")

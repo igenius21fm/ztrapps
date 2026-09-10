@@ -10,10 +10,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(SCRIPT_DIR), "ztrclient"))
 sys.path.insert(0, os.path.join(os.path.dirname(SCRIPT_DIR), "ztrclient", "utils"))
 from ztrClient import RelayClient
 
-# Minimum time between reauthorization attempts for the same worker — without
-# this, every thread that finds no free worker retries healing on every loop
-# iteration, hammering the hop chain with repeated reauth attempts for a
-# worker that just failed moments ago.
+# Minimum time between reauthorization attempts for the same worker, so a
+# broken worker isn't retried on every single loop iteration.
 HEAL_COOLDOWN_SECONDS = 5.0
 
 
@@ -83,51 +81,20 @@ class RCWorkers:
         self.condition = threading.Condition(self.lock)
         self.target_host = target_host
         self.port = port
-        # RelayClient defaults TARGET_PORT to `port`, but the two aren't
-        # the same thing — TARGET_PORT is what the exit hop actually
-        # dials at TARGET_HOST, baked into the tunnel id and the hop
-        # authorization request itself (see request_hop_authorization() in
-        # ztrClient.py), while `port` also does separate duty as this
-        # tunnel's listening_port. Pass this when the pool needs to reach a
-        # destination port that isn't `port`; leave it None to keep
-        # RelayClient's own default.
         self.target_port = target_port
         self.config_file = config_file
 
-        # Workers that fail to authorize here are kept in the pool (state
-        # "broken") rather than dropped — otherwise a worker that just
-        # happened to fail at startup would never get a chance to heal, and
-        # the pool would silently run under capacity for its whole lifetime.
+        # Workers that fail to authorize here stay in the pool as "broken"
+        # rather than being dropped, so they still get a chance to heal.
         self.workers = [RCTimer(target_host, port, config_file) for _ in range(n)]
         for i, w in enumerate(self.workers):
-            # Distinct worker_id per worker — create_tunnel_id() hashes it
-            # in, so without this every worker here (same target/route/ttl)
-            # would compute the *same* tunnel_id and could end up sharing
-            # one cached session instead of each getting its own. Set once;
-            # it's stored on the instance and stays put across the
-            # re-authorization attempts _heal_broken_workers() makes later.
-            # worker_prefix is required, not just optional decoration — a
-            # bare "0", "1", "2"... is only unique *within* this pool; two
-            # separate RCWorkers pools against the same target/route/ttl
-            # with no prefix would compute identical tunnel_ids for their
-            # same-numbered workers and could end up sharing each other's
-            # cached sessions. The prefix is what actually keeps pools
-            # distinct from one another, not just workers within one pool.
+            # worker_prefix (required) plus index keeps tunnel_ids distinct
+            # across workers and across separate pools on the same route.
             w.with_worker_id(f"{worker_prefix}{i}")
-            # Pool-wide toggles applied uniformly — every worker here
-            # shares the same target/route, so there's no reason one
-            # worker's tunnel would want these on while another's didn't.
             w.with_timing_defense(timing_defense)
-            # Keyword, not positional — with_encryption()'s first positional
-            # arg is now recipient_pubkey_path (opt-in end-to-end encryption
-            # on RelayClient itself). This pool doesn't use that; it only
-            # sets the unrelated secure_transport flag (hop chain's own
-            # final-leg encryption) — see ztrClient.py's with_encryption().
             w.with_encryption(enabled=secure_transport)
             # Must happen before _authorize() — TARGET_PORT is read at
-            # authorization time (create_tunnel_id()/request_hop_authorization()
-            # in ztrClient.py), not per-request, so setting it after the
-            # tunnel's already authorized would silently have no effect.
+            # authorization time, so setting it afterward would have no effect.
             if target_port is not None:
                 w.set_target_port(target_port)
             self._authorize(w)
@@ -175,10 +142,8 @@ class RCWorkers:
                 if deadline is not None and time.monotonic() >= deadline:
                     raise TimeoutError("no worker became available in time")
 
-                # Bounded wait, not indefinite — if every worker is broken
-                # and no other thread currently holds one, nothing would
-                # ever call notify_all() to wake this up otherwise, and
-                # healing would never get retried.
+                # Bounded, not indefinite — if every worker is broken and no
+                # other thread wakes this, healing still gets retried.
                 remaining = None if deadline is None else max(0.0, deadline - time.monotonic())
                 self.condition.wait(timeout=min(HEAL_COOLDOWN_SECONDS, remaining) if remaining is not None else HEAL_COOLDOWN_SECONDS)
 

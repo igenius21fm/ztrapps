@@ -40,13 +40,8 @@ class _MailboxConnection:
 
     def __init__(self, config_file: str, target_host: str, port: int = None, target_port: int = 9997):
         self._client = RelayClient(target_host=target_host, port=port, config_file=config_file)
-        # port and target_port are not the same thing — port is this
-        # tunnel's own listening_port (left None, it auto-selects from
-        # hop_settings.services_ports — see RelayClient); target_port is
-        # where the exit hop actually connects at target_host, and
-        # defaults to 9997 here specifically because that's ztr_mailbox.py's
-        # own listening default — NOT because RelayClient falls back to
-        # `port`, which would now be the wrong value most of the time.
+        # target_port defaults to 9997 (ztr_mailbox.py's own listening
+        # default), independent of port — see RelayClient.
         if target_port is not None:
             self._client.set_target_port(target_port)
         self._sock = None
