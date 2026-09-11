@@ -3,6 +3,7 @@ import socket
 import sys
 import threading
 import time
+from typing import Callable, Optional
 
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -73,9 +74,8 @@ class RCWorkers:
         worker_prefix: str,
         port: int = None,
         n: int = 2,
-        timing_defense: bool = False,
-        secure_transport: bool = False,
         target_port: int = None,
+        override: Optional[Callable[["RCTimer"], None]] = None,
     ):
         self.lock = threading.Lock()
         self.condition = threading.Condition(self.lock)
@@ -91,8 +91,9 @@ class RCWorkers:
             # worker_prefix (required) plus index keeps tunnel_ids distinct
             # across workers and across separate pools on the same route.
             w.with_worker_id(f"{worker_prefix}{i}")
-            w.with_timing_defense(timing_defense)
-            w.with_encryption(enabled=secure_transport)
+            # Runs before _authorize() — e.g. override=lambda w: w.with_timing_defense().with_encryption(enabled=True)
+            if override:
+                override(w)
             # Must happen before _authorize() — TARGET_PORT is read at
             # authorization time, so setting it afterward would have no effect.
             if target_port is not None:
