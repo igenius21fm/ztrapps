@@ -91,7 +91,7 @@ class RCWorkers:
             # worker_prefix (required) plus index keeps tunnel_ids distinct
             # across workers and across separate pools on the same route.
             w.with_worker_id(f"{worker_prefix}{i}")
-            # Runs before _authorize() — e.g. override=lambda w: w.with_timing_defense().with_encryption(enabled=True)
+            # Runs before _authorize() — e.g. override=lambda w: w.with_timing_defense().with_encryption("target_pub.pem")
             if override:
                 override(w)
             # Must happen before _authorize() — TARGET_PORT is read at

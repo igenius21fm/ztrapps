@@ -81,7 +81,6 @@ class ZtrRequestsClient:
         target_public_key: str = None,
         timeout: int = 30,
         timing_defense: bool = False,
-        secure_transport: bool = False,
         worker_id: str = None,
     ):
         self._timeout = timeout
@@ -94,9 +93,6 @@ class ZtrRequestsClient:
         if worker_id is not None:
             self._client.with_worker_id(f"{worker_prefix}{worker_id}")
         self._client.with_timing_defense(timing_defense)
-        # secure_transport (hop chain's own final-leg encryption) — this
-        # class's target-facing encryption is the separate self._crypt below.
-        self._client.with_encryption(enabled=secure_transport)
         self._sock = None
 
         self._crypt = AR.CryptBot(
@@ -223,12 +219,6 @@ def _cli() -> None:
         action="store_true",
         help="ask the hop chain for delay-jitter and decoy traffic on this tunnel",
     )
-    parser.add_argument(
-        "--secure-transport",
-        action="store_true",
-        help="ask the hop chain to also encrypt the final leg to the target — redundant for "
-        "already-encrypted protocols (HTTPS), useful if the target service itself doesn't encrypt",
-    )
     args = parser.parse_args()
 
     headers = {}
@@ -243,7 +233,6 @@ def _cli() -> None:
         port=args.port,
         target_port=args.target_port,
         timing_defense=args.timing_correlation_defense,
-        secure_transport=args.secure_transport,
     ) as client:
         resp = client.request(args.method.upper(), args.url, headers=headers, body=args.data)
 
