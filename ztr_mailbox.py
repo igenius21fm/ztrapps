@@ -77,10 +77,15 @@ def _recv_exact(conn: socket.socket, n: int) -> bytes:
     return bytes(buf)
 
 # Plain length-prefixed JSON — no crypt_bot signing layer, deliberately
-# (see module docstring). length(4 bytes) + JSON bytes.
+# (see module docstring). length(4 bytes) + JSON bytes, wrapped in the same
+# header send_HTH/recv_HTH use (4-byte length + 64-byte marker) with the
+# marker zeroed out, so the exit hop can tell this reply came from the
+# target rather than from elsewhere in the hop chain.
 def _send(conn: socket.socket, obj: dict) -> None:
     data = json.dumps(obj).encode("utf-8")
-    conn.sendall(struct.pack(">I", len(data)) + data)
+    frame = struct.pack(">I", len(data)) + data
+    envelope = struct.pack(">I64s", len(frame), b"0" * 64)
+    conn.sendall(envelope + frame)
 
 def _recv(conn: socket.socket) -> dict:
     (length,) = struct.unpack(">I", _recv_exact(conn, 4))

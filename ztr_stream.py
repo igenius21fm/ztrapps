@@ -65,9 +65,14 @@ def _recv_exact(conn: socket.socket, n: int) -> bytes:
 # length(4 bytes) + encrypted payload — no compression flag byte like
 # ztr_requests.py's framing, since video chunks are already-compressed
 # binary (h264/mp4/etc); gzip on top would just burn CPU for no size win.
+# Wrapped in the same header send_HTH/recv_HTH use (4-byte length + 64-byte
+# marker) with the marker zeroed out, so the exit hop can tell this reply
+# came from the target rather than from elsewhere in the hop chain.
 def _send_frame(conn: socket.socket, payload: bytes) -> None:
     encrypted = crypt.encrypt_sign_BytesPayload(payload)
-    conn.sendall(struct.pack(">I", len(encrypted)) + encrypted)
+    frame = struct.pack(">I", len(encrypted)) + encrypted
+    envelope = struct.pack(">I64s", len(frame), b"0" * 64)
+    conn.sendall(envelope + frame)
 
 def _recv_frame(conn: socket.socket) -> bytes:
     (length,) = struct.unpack(">I", _recv_exact(conn, 4))

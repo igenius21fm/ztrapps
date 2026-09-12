@@ -90,12 +90,15 @@ def _send_framed(conn: socket.socket, data_str: str, size_threshold=200) -> None
         payload = data
     logger.info(f"[send({flag})] = {len(payload)} bytes")
     encrypted_payload = crypt.encrypt_sign_BytesPayload(payload)
-    # flag (1 byte) + payload length (4 bytes) + payload. No extra envelope
-    # beyond this — the relay tunnel's own framing (send_HTH/recv_HTH) is a
-    # separate layer the caller already went through to reach this socket
-    # at all, so wrapping again here would just be paying for it twice.
-    header = struct.pack(">BI", flag, len(encrypted_payload))
-    conn.sendall(header + encrypted_payload)
+    # flag (1 byte) + payload length (4 bytes) + payload — our own inner
+    # framing. The exit hop expects every reply on this socket wrapped in
+    # the same header send_HTH/recv_HTH use (4-byte length + 64-byte
+    # marker), with the marker zeroed out instead of holding a session id —
+    # that's how it tells a target-originated reply apart from a message
+    # from elsewhere in the hop chain.
+    frame = struct.pack(">BI", flag, len(encrypted_payload)) + encrypted_payload
+    envelope = struct.pack(">I64s", len(frame), b"0" * 64)
+    conn.sendall(envelope + frame)
 
 def _recv_framed(conn: socket.socket) -> bytes:
     header = _recv_exact(conn, 5)
