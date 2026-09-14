@@ -9,7 +9,7 @@ from typing import Callable, Optional
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(SCRIPT_DIR), "ztrclient"))
 sys.path.insert(0, os.path.join(os.path.dirname(SCRIPT_DIR), "ztrclient", "utils"))
-from ztrClient import RelayClient
+from ztrClient import RelayClient, TunnelError, NetworkError
 
 # Minimum time between reauthorization attempts for the same worker, so a
 # broken worker isn't retried on every single loop iteration.
@@ -171,16 +171,47 @@ class RCWorkers:
 
 
 def rc_task(rcw: RCWorkers, _start, on_failure=None, on_success=None, *args, **kwargs):
-    worker = rcw.acquire_worker()
-    try:
-        r = _start(worker, *args, **kwargs)
-        if r:
-            on_success and on_success(worker, r)
-        return r
-    except Exception as e:
-        print(f"Task failed on worker {worker}: {e}")
-        if on_failure:
-            on_failure(worker, str(e))
-        return None
-    finally:
+    """Runs _start(worker, *args, **kwargs) on a pool worker, retrying on a
+    different worker (up to once per worker in the pool) if it fails with a
+    tunnel-level error. Every worker in the pool gets exactly one chance
+    before giving up — bounded by pool size, not by "have I seen this
+    worker object before", which can misfire and give up early if the pool
+    hands back an already-tried worker while a fresh one is still becoming
+    free."""
+    max_attempts = len(rcw.workers)
+    failures = {}
+    worker = None
+
+    for attempt in range(max_attempts):
+        try:
+            worker = rcw.acquire_worker(wait_timeout=2)
+        except TimeoutError as e:
+            failures["pool"] = str(e)
+            break
+
+        try:
+            r = _start(worker, *args, **kwargs)
+        except (TunnelError, NetworkError) as e:
+            # Network/protocol-level failure — this worker's cached
+            # authorization may now be stale, so clear it (it re-authorizes
+            # from scratch next time) and let another worker take a shot.
+            failures[worker.worker_id] = str(e)
+            worker.tunnel_cache.delete(worker.tunnel_id)
+            print(f"[rc_task] attempt {attempt + 1}/{max_attempts} failed on {worker.worker_id}: {e}")
+        except Exception as e:
+            # Not tunnel-level (e.g. a bug in _start itself) — another
+            # worker won't fix that, so stop instead of burning the pool.
+            failures[worker.worker_id] = str(e)
+            print(f"[rc_task] non-retryable error on {worker.worker_id}: {e}")
+            rcw.release_worker(worker)
+            break
+        else:
+            rcw.release_worker(worker)
+            if r and on_success:
+                on_success(worker, r)
+            return r
         rcw.release_worker(worker)
+
+    if on_failure:
+        on_failure(worker, failures)
+    return None
