@@ -34,18 +34,18 @@ class RCTimer(RelayClient):
             f" state<{self.state}>>"
         )
 
-    def send_HTH(self, sock: socket.socket, payload: bytes, session_id: str):
+    def send_HTH(self, sock: socket.socket, payload: bytes, session_id: str, encrypt_payload: bool = False):
         self.tap().__busy__()
         try:
-            return super().send_HTH(sock, payload, session_id)
+            return super().send_HTH(sock, payload, session_id, encrypt_payload=encrypt_payload)
         except Exception:
             self.__broken__()
             raise
 
-    def recv_HTH(self, sock: socket.socket):
+    def recv_HTH(self, sock: socket.socket, decrypt_payload: bool = False):
         self.tap().__busy__()
         try:
-            r = super().recv_HTH(sock)
+            r = super().recv_HTH(sock, decrypt_payload=decrypt_payload)
             self.__free__()
             return r
         except Exception:
